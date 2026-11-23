@@ -1,0 +1,8 @@
+﻿/build/
+/dist/
+/.vs/
+/.vscode/
+/out/
+/cache/
+*.user
+*.log

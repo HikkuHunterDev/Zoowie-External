@@ -1,0 +1,65 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "msvc-base",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64"
+    },
+    {
+      "name": "debug",
+      "displayName": "ilikesource Debug (console)",
+      "description": "Debug build with console and diagnostics",
+      "inherits": "msvc-base",
+      "binaryDir": "${sourceDir}/build/debug"
+    },
+    {
+      "name": "release",
+      "displayName": "ilikesource Release (clean)",
+      "description": "Optimized release build without the console module",
+      "inherits": "msvc-base",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "ILIKESOURCE_PERF_LOG": "OFF",
+        "ILIKESOURCE_WINDOWED_PROFILE": "OFF",
+        "ILIKESOURCE_WINDOWED_SESSION": "OFF",
+        "ILIKESOURCE_OUTPUT_NAME": "ilikesource"
+      }
+    },
+    {
+      "name": "profile",
+      "displayName": "ilikesource optimized CPU profiling",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/profile",
+      "cacheVariables": {
+        "ILIKESOURCE_PERF_LOG": "ON",
+        "ILIKESOURCE_OUTPUT_NAME": "ilikesource-profile"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "displayName": "Build ilikesource Debug",
+      "configurePreset": "debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "release",
+      "displayName": "Build ilikesource Release",
+      "configurePreset": "release",
+      "configuration": "Release"
+    },
+    {
+      "name": "profile",
+      "configurePreset": "profile",
+      "configuration": "Release"
+    }
+  ]
+}
