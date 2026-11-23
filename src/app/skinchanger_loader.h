@@ -107,28 +107,21 @@ static DWORD WINAPI mmShellcode(MMData *p) {
   return 0;
 }
 
-inline Result manualMap(DWORD Pid, const std::wstring &Dll) {
-  HANDLE f = CreateFileW(Dll.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-  if (f == INVALID_HANDLE_VALUE) return Result::Failed;
-  DWORD sz = GetFileSize(f, nullptr);
-  std::string buf(sz, '\0');
-  DWORD rd = 0; ReadFile(f, buf.data(), sz, &rd, nullptr); CloseHandle(f);
-  if (rd != sz) return Result::Failed;
-  auto *dos = reinterpret_cast<IMAGE_DOS_HEADER*>(buf.data());
+inline Result manualMapBytes(DWORD Pid, const uint8_t* dllData, size_t sz) {
+  if (!dllData || sz < sizeof(IMAGE_DOS_HEADER)) return Result::Failed;
+  auto *dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(dllData);
   if (dos->e_magic != IMAGE_DOS_SIGNATURE) return Result::Failed;
-  auto *nt = reinterpret_cast<IMAGE_NT_HEADERS*>(buf.data() + dos->e_lfanew);
+  auto *nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(dllData + dos->e_lfanew);
   if (nt->Signature != IMAGE_NT_SIGNATURE) return Result::Failed;
   HANDLE proc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, Pid);
   if (!proc) return Result::Failed;
   BYTE *remote = reinterpret_cast<BYTE*>(VirtualAllocEx(proc, nullptr, nt->OptionalHeader.SizeOfImage, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
   if (!remote) { CloseHandle(proc); return Result::Failed; }
-  // headers
-  WriteProcessMemory(proc, remote, buf.data(), nt->OptionalHeader.SizeOfHeaders, nullptr);
-  // sections
-  auto *sec = IMAGE_FIRST_SECTION(nt);
+  WriteProcessMemory(proc, remote, dllData, nt->OptionalHeader.SizeOfHeaders, nullptr);
+  auto *sec = IMAGE_FIRST_SECTION(const_cast<IMAGE_NT_HEADERS*>(nt));
   for (WORD i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec) {
     if (sec->SizeOfRawData)
-      WriteProcessMemory(proc, remote + sec->VirtualAddress, buf.data() + sec->PointerToRawData, sec->SizeOfRawData, nullptr);
+      WriteProcessMemory(proc, remote + sec->VirtualAddress, dllData + sec->PointerToRawData, sec->SizeOfRawData, nullptr);
   }
   MMData data{};
   data.pLoadLibraryA = LoadLibraryA;
@@ -136,17 +129,25 @@ inline Result manualMap(DWORD Pid, const std::wstring &Dll) {
   data.base = remote;
   void *remoteData = VirtualAllocEx(proc, nullptr, sizeof(MMData), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
   WriteProcessMemory(proc, remoteData, &data, sizeof(data), nullptr);
-  // shellcode: copy function bytes up to a safe size
   void *remoteCode = VirtualAllocEx(proc, nullptr, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
   WriteProcessMemory(proc, remoteCode, reinterpret_cast<void*>(&mmShellcode), 0x1000, nullptr);
   HANDLE th = CreateRemoteThread(proc, nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(remoteCode), remoteData, 0, nullptr);
   if (!th) { VirtualFreeEx(proc, remote, 0, MEM_RELEASE); CloseHandle(proc); return Result::Failed; }
   WaitForSingleObject(th, 10000);
   CloseHandle(th);
-  // leave remote memory allocated (mapped image)
   CloseHandle(proc);
   Sleep(1500);
-  return moduleLoaded(Pid, Dll) ? Result::Loaded : Result::Loaded; // manual map won't show in module list; assume ok if no crash
+  return Result::Loaded; // manual map won't show in module list
+}
+
+inline Result manualMap(DWORD Pid, const std::wstring &Dll) {
+  HANDLE f = CreateFileW(Dll.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+  if (f == INVALID_HANDLE_VALUE) return Result::Failed;
+  DWORD sz = GetFileSize(f, nullptr);
+  std::vector<uint8_t> buf(sz);
+  DWORD rd = 0; ReadFile(f, buf.data(), sz, &rd, nullptr); CloseHandle(f);
+  if (rd != sz) return Result::Failed;
+  return manualMapBytes(Pid, buf.data(), buf.size());
 }
 
 inline Result inject(DWORD Pid, const std::wstring &Dll) {

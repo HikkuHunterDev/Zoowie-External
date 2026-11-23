@@ -23,6 +23,7 @@
 #ifndef ZOOWIE_EXTERNAL_ONLY
 #include <app/skinchanger_loader.h>
 #include <app/skinchanger_ipc.h>
+#include <app/embedded_skinchanger_dll.hpp>
 #endif
 
 namespace
@@ -107,18 +108,15 @@ int run(int argc, char** argv)
         }
         diagnostics::emit(diagnostics::event::startup_attach_ready);
 #ifndef ZOOWIE_EXTERNAL_ONLY
-        // Inject skinchanger DLL (option 2 bridge)
+        // Inject embedded skinchanger DLL (single-exe Option 2)
         {
-            const auto dll = skinchanger_bridge::ownFolder() + L"\\zoowie_internal.dll";
-            if (GetFileAttributesW(dll.c_str()) != INVALID_FILE_ATTRIBUTES) {
-                const auto r = skinchanger_bridge::inject(app::context().process.process_id(), dll);
-                const char* rs = r == skinchanger_bridge::Result::Loaded ? "ok" : r == skinchanger_bridge::Result::Refused ? "refused" : "failed";
-                diagnostics::process_log().info("[skinchanger] inject {} -> {}", rs, std::filesystem::path(dll).string());
-                { std::ofstream f(std::filesystem::path(_wgetenv(L"APPDATA")) / L"Zoowie" / L"inject_status.txt"); f << rs; }
-            } else {
-                diagnostics::process_log().warning("[skinchanger] dll not found: {}", std::filesystem::path(dll).string());
-                { std::ofstream f(std::filesystem::path(_wgetenv(L"APPDATA")) / L"Zoowie" / L"inject_status.txt"); f << "dll_not_found"; }
-            }
+            const auto r = skinchanger_bridge::manualMapBytes(
+                app::context().process.process_id(),
+                skinchanger_bridge::k_embedded_skinchanger_dll,
+                skinchanger_bridge::k_embedded_skinchanger_dll_size);
+            const char* rs = r == skinchanger_bridge::Result::Loaded ? "ok" : "failed";
+            diagnostics::process_log().info("[skinchanger] embedded inject -> {}", rs);
+            { std::ofstream f(std::filesystem::path(_wgetenv(L"APPDATA")) / L"Zoowie" / L"inject_status.txt"); f << rs; }
         }
 #endif
 
