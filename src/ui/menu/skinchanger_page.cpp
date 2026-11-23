@@ -352,9 +352,9 @@ void menu_t::draw_skinchanger()
             if (ImGui::BeginCombo("##sc_charm", n.c_str())) { if(ImGui::Selectable(tr("None","Нет"), s.charm<0)) s.charm=-1; for(int i=0;i<(int)s.catalog.Keychains.size();++i) { auto cn=prettyPaintName(s.catalog.Keychains[i].Name); if(ImGui::Selectable(cn.c_str(), s.charm==i)) s.charm=i; } ImGui::EndCombo(); } end_row();
         }
 
-        if (ImGui::Button(tr("Equip","Применить"), {140,30})) {
+        auto makeRecord = [&](uint8_t team) {
             skinchanger_ipc::ItemRecord r{};
-            r.Team = pickTeam(it); r.Slot = it->Slot; r.Definition = it->Definition;
+            r.Team = team; r.Slot = it->Slot; r.Definition = it->Definition;
             r.Paint = (s.paint>=0 && s.paint<(int)s.catalog.Paints.size()) ? s.catalog.Paints[s.paint].Id : 0;
             r.Wear = s.wear;
             if (r.Paint && s.paint>=0 && s.paint<(int)s.catalog.Paints.size()) {
@@ -365,12 +365,40 @@ void menu_t::draw_skinchanger()
             if (s.sticker>=0 && s.sticker<(int)s.catalog.Stickers.size() && it->StickerSlots>0) r.Stickers.push_back({0, s.catalog.Stickers[s.sticker].Id,0.f,1.f,0.f,0.f,0.f,-1});
             if (s.patch>=0 && s.patch<(int)s.catalog.Patches.size() && it->PatchSlots>0) r.Patches.push_back({0, s.catalog.Patches[s.patch].Id});
             if (s.charm>=0 && s.charm<(int)s.catalog.Keychains.size() && it->CharmSlots>0) r.Charm = skinchanger_ipc::Charm{s.catalog.Keychains[s.charm].Id,0,0,0,0,0};
-            skinchanger_ipc::sendEquip(r);
+            return r;
+        };
+        auto teamsForItem = [&]() {
+            std::vector<uint8_t> teams;
+            auto &c = s.catalog;
+            if (!it || it->Teams == 0) { teams.push_back(c.CounterTerrorists); teams.push_back(c.Terrorists); return teams; }
+            if (it->Teams & (1u << c.CounterTerrorists)) teams.push_back(c.CounterTerrorists);
+            if (it->Teams & (1u << c.Terrorists)) teams.push_back(c.Terrorists);
+            if (teams.empty()) teams.push_back(c.AnyTeam);
+            return teams;
+        };
+        auto sameKey = [&](const skinchanger_ipc::ItemRecord& a, const skinchanger_ipc::ItemRecord& b) {
+            if (a.Team != b.Team) return false;
+            // kind 0=weapon,5=medal,6=other -> definition-based; 1=knife,2=gloves,3=agent,4=music -> slot-based
+            bool slotBased = (it->Kind == 1 || it->Kind == 2 || it->Kind == 3 || it->Kind == 4);
+            return slotBased ? (a.Slot == b.Slot) : (a.Definition == b.Definition);
+        };
+        if (ImGui::Button(tr("Equip","Применить"), {140,30})) {
+            auto items = s.state.Items;
+            for (auto t : teamsForItem()) {
+                auto nr = makeRecord(t);
+                std::erase_if(items, [&](const auto& x){ return sameKey(x, nr); });
+                items.push_back(nr);
+            }
+            skinchanger_ipc::sendApply(items);
         }
         ImGui::SameLine();
         if (ImGui::Button(tr("Unequip","Снять"), {140,30})) {
-            skinchanger_ipc::ItemRecord r{}; r.Team=pickTeam(it); r.Slot=it->Slot; r.Definition=it->Definition;
-            skinchanger_ipc::sendUnequip(r);
+            auto items = s.state.Items;
+            for (auto t : teamsForItem()) {
+                auto nr = makeRecord(t);
+                std::erase_if(items, [&](const auto& x){ return sameKey(x, nr); });
+            }
+            skinchanger_ipc::sendApply(items);
         }
     });
 
